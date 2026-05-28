@@ -25,6 +25,12 @@ require_once __DIR__ . '/includes/Presets/PresetRegistry.php';
 require_once __DIR__ . '/includes/Presets/PresetLoader.php';
 require_once __DIR__ . '/includes/Presets/PresetMatcher.php';
 require_once __DIR__ . '/includes/Presets/PresetLibrary.php';
+require_once __DIR__ . '/includes/Vision/AiProviderInterface.php';
+require_once __DIR__ . '/includes/Vision/OpenAIVisionProvider.php';
+require_once __DIR__ . '/includes/Vision/SectionDetector.php';
+require_once __DIR__ . '/includes/Vision/StyleDetector.php';
+require_once __DIR__ . '/includes/Vision/LayoutExtractor.php';
+require_once __DIR__ . '/includes/Vision/VisionAnalyzer.php';
 
 use ElementorVisionCore\Builders\JsonRepairEngine;
 use ElementorVisionCore\Builders\JsonValidator;
@@ -33,6 +39,8 @@ use ElementorVisionCore\Presets\PresetLibrary;
 use ElementorVisionCore\Presets\PresetLoader;
 use ElementorVisionCore\Presets\PresetRegistry;
 use ElementorVisionCore\Presets\SampleTemplatePreset;
+use ElementorVisionCore\Vision\OpenAIVisionProvider;
+use ElementorVisionCore\Vision\VisionAnalyzer;
 
 class Elementor_Vision_Core_Plugin {
     public function __construct() {
@@ -43,6 +51,7 @@ class Elementor_Vision_Core_Plugin {
         add_action('admin_post_evc_load_preset', [$this, 'handle_load_preset']);
         add_action('admin_post_evc_save_preset', [$this, 'handle_save_preset']);
         add_action('admin_post_evc_duplicate_preset', [$this, 'handle_duplicate_preset']);
+        add_action('admin_post_evc_analyze_screenshot', [$this, 'handle_analyze_screenshot']);
     }
 
     public function register_admin_menu() {
@@ -95,6 +104,16 @@ class Elementor_Vision_Core_Plugin {
                 <select name="preset_id"><?php foreach ($presets as $preset_id => $preset) : ?><option value="<?php echo esc_attr($preset_id); ?>"><?php echo esc_html($preset['name']); ?></option><?php endforeach; ?></select>
                 <?php submit_button('Duplicate Preset', 'secondary', 'submit', false); ?>
             </form>
+
+            <h2>Screenshot Analysis</h2>
+            <form method="post" action="<?php echo $action; ?>" enctype="multipart/form-data" style="margin-bottom:12px;display:flex;gap:8px;align-items:center;">
+                <?php wp_nonce_field('evc_analyze_screenshot'); ?>
+                <input type="hidden" name="action" value="evc_analyze_screenshot" />
+                <input type="file" name="screenshot" accept="image/*" required />
+                <input type="text" name="openai_api_key" placeholder="OpenAI API Key" style="min-width:280px;" required />
+                <?php submit_button('Analyze Screenshot', 'primary', 'submit', false); ?>
+            </form>
+
             <form method="post" action="<?php echo $action; ?>" style="margin: 8px 0; display:flex; gap:8px; align-items:center;">
                 <?php wp_nonce_field('evc_save_preset'); ?>
                 <input type="hidden" name="action" value="evc_save_preset" />
@@ -214,6 +233,38 @@ class Elementor_Vision_Core_Plugin {
         $new_id = (new PresetRegistry())->duplicate($id);
         set_transient('evc_last_report', ['action' => 'duplicate_preset', 'source' => $id, 'duplicate' => $new_id], 120);
         wp_safe_redirect(admin_url('admin.php?page=elementor-vision-core')); exit;
+    }
+
+
+    public function handle_analyze_screenshot() {
+        if (! current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        check_admin_referer('evc_analyze_screenshot');
+
+        if (! isset($_FILES['screenshot']) || empty($_FILES['screenshot']['tmp_name'])) {
+            wp_die('Screenshot file is required.');
+        }
+
+        $tmp = $_FILES['screenshot']['tmp_name'];
+        $mime = mime_content_type($tmp);
+        if (! is_string($mime) || strpos($mime, 'image/') !== 0) {
+            wp_die('Uploaded file must be an image.');
+        }
+
+        $bytes = file_get_contents($tmp);
+        if ($bytes === false) {
+            wp_die('Unable to read uploaded file.');
+        }
+
+        $api_key = sanitize_text_field($_POST['openai_api_key'] ?? '');
+        $data_url = 'data:' . $mime . ';base64,' . base64_encode($bytes);
+
+        $provider = new OpenAIVisionProvider($api_key);
+        $analyzer = new VisionAnalyzer($provider);
+        $result = $analyzer->analyze($data_url);
+
+        set_transient('evc_last_report', ['action' => 'analyze_screenshot', 'result' => $result], 300);
+        wp_safe_redirect(admin_url('admin.php?page=elementor-vision-core'));
+        exit;
     }
 
     private function download_json(string $json, string $prefix): void {
