@@ -21,10 +21,17 @@ require_once __DIR__ . '/includes/Builders/ElementorSchemaChecker.php';
 require_once __DIR__ . '/includes/Builders/JsonValidator.php';
 require_once __DIR__ . '/includes/Builders/JsonRepairEngine.php';
 require_once __DIR__ . '/includes/Presets/SampleTemplatePreset.php';
+require_once __DIR__ . '/includes/Presets/PresetRegistry.php';
+require_once __DIR__ . '/includes/Presets/PresetLoader.php';
+require_once __DIR__ . '/includes/Presets/PresetMatcher.php';
+require_once __DIR__ . '/includes/Presets/PresetLibrary.php';
 
 use ElementorVisionCore\Builders\JsonRepairEngine;
 use ElementorVisionCore\Builders\JsonValidator;
 use ElementorVisionCore\Builders\TemplateExporter;
+use ElementorVisionCore\Presets\PresetLibrary;
+use ElementorVisionCore\Presets\PresetLoader;
+use ElementorVisionCore\Presets\PresetRegistry;
 use ElementorVisionCore\Presets\SampleTemplatePreset;
 
 class Elementor_Vision_Core_Plugin {
@@ -33,6 +40,9 @@ class Elementor_Vision_Core_Plugin {
         add_action('admin_post_evc_generate_template', [$this, 'handle_generate_template']);
         add_action('admin_post_evc_validate_template', [$this, 'handle_validate_template']);
         add_action('admin_post_evc_repair_template', [$this, 'handle_repair_template']);
+        add_action('admin_post_evc_load_preset', [$this, 'handle_load_preset']);
+        add_action('admin_post_evc_save_preset', [$this, 'handle_save_preset']);
+        add_action('admin_post_evc_duplicate_preset', [$this, 'handle_duplicate_preset']);
     }
 
     public function register_admin_menu() {
@@ -45,6 +55,9 @@ class Elementor_Vision_Core_Plugin {
         }
         $action = esc_url(admin_url('admin-post.php'));
         $report = get_transient('evc_last_report');
+        $registry = new PresetRegistry();
+        $registry->seed_defaults((new PresetLibrary())->defaults());
+        $presets = $registry->all();
         ?>
         <div class="wrap">
             <h1>Elementor Vision Core</h1>
@@ -66,6 +79,28 @@ class Elementor_Vision_Core_Plugin {
                 <?php wp_nonce_field('evc_repair_template'); ?>
                 <input type="hidden" name="action" value="evc_repair_template" />
                 <?php submit_button('Repair Template', 'secondary', 'submit', false); ?>
+            </form>
+
+
+            <h2>Preset Registry</h2>
+            <form method="post" action="<?php echo $action; ?>" style="margin: 8px 0; display:flex; gap:8px; align-items:center;">
+                <?php wp_nonce_field('evc_load_preset'); ?>
+                <input type="hidden" name="action" value="evc_load_preset" />
+                <select name="preset_id"><?php foreach ($presets as $preset_id => $preset) : ?><option value="<?php echo esc_attr($preset_id); ?>"><?php echo esc_html($preset['name'] . ' [' . $preset['category'] . ']'); ?></option><?php endforeach; ?></select>
+                <?php submit_button('Load Preset', 'secondary', 'submit', false); ?>
+            </form>
+            <form method="post" action="<?php echo $action; ?>" style="margin: 8px 0; display:flex; gap:8px; align-items:center;">
+                <?php wp_nonce_field('evc_duplicate_preset'); ?>
+                <input type="hidden" name="action" value="evc_duplicate_preset" />
+                <select name="preset_id"><?php foreach ($presets as $preset_id => $preset) : ?><option value="<?php echo esc_attr($preset_id); ?>"><?php echo esc_html($preset['name']); ?></option><?php endforeach; ?></select>
+                <?php submit_button('Duplicate Preset', 'secondary', 'submit', false); ?>
+            </form>
+            <form method="post" action="<?php echo $action; ?>" style="margin: 8px 0; display:flex; gap:8px; align-items:center;">
+                <?php wp_nonce_field('evc_save_preset'); ?>
+                <input type="hidden" name="action" value="evc_save_preset" />
+                <input type="text" name="preset_name" placeholder="Preset name" required />
+                <select name="preset_category"><option>hero</option><option>services</option><option>stats</option><option>CTA</option><option>footer</option><option>testimonials</option></select>
+                <?php submit_button('Save Preset', 'secondary', 'submit', false); ?>
             </form>
 
             <?php if (is_array($report)) : ?>
@@ -138,6 +173,47 @@ class Elementor_Vision_Core_Plugin {
         $exporter = new TemplateExporter();
         $fixed = $exporter->export($repair_result['json']['content'], $repair_result['json']['title']);
         $this->download_json($fixed, 'elementor-vision-repaired-template');
+    }
+
+
+    public function handle_load_preset() {
+        if (! current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        check_admin_referer('evc_load_preset');
+        $id = sanitize_key($_POST['preset_id'] ?? '');
+        $registry = new PresetRegistry();
+        $preset = $registry->get($id);
+        if (! $preset) { wp_die('Preset not found'); }
+        $payload = (new PresetLoader())->payload($preset);
+        $json = wp_json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        $this->download_json((string) $json, 'elementor-vision-preset-' . $id);
+    }
+
+    public function handle_save_preset() {
+        if (! current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        check_admin_referer('evc_save_preset');
+        $name = sanitize_text_field($_POST['preset_name'] ?? 'Custom Preset');
+        $category = sanitize_text_field($_POST['preset_category'] ?? 'hero');
+        $allowed = ['hero','services','stats','CTA','footer','testimonials'];
+        if (! in_array($category, $allowed, true)) { $category = 'hero'; }
+        $preset = [
+            'id' => sanitize_key(strtolower(str_replace(' ', '-', $name)) . '-' . wp_generate_password(4, false, false)),
+            'name' => $name,
+            'category' => $category,
+            'metadata' => ['style' => 'custom', 'layout_type' => 'custom', 'color_scheme' => 'custom', 'industry' => 'general', 'tags' => ['custom']],
+            'content' => (new SampleTemplatePreset())->build(),
+        ];
+        (new PresetRegistry())->save($preset);
+        set_transient('evc_last_report', ['action' => 'save_preset', 'preset' => $preset['id']], 120);
+        wp_safe_redirect(admin_url('admin.php?page=elementor-vision-core')); exit;
+    }
+
+    public function handle_duplicate_preset() {
+        if (! current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        check_admin_referer('evc_duplicate_preset');
+        $id = sanitize_key($_POST['preset_id'] ?? '');
+        $new_id = (new PresetRegistry())->duplicate($id);
+        set_transient('evc_last_report', ['action' => 'duplicate_preset', 'source' => $id, 'duplicate' => $new_id], 120);
+        wp_safe_redirect(admin_url('admin.php?page=elementor-vision-core')); exit;
     }
 
     private function download_json(string $json, string $prefix): void {
