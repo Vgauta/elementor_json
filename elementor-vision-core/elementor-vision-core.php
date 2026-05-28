@@ -31,6 +31,9 @@ require_once __DIR__ . '/includes/Vision/SectionDetector.php';
 require_once __DIR__ . '/includes/Vision/StyleDetector.php';
 require_once __DIR__ . '/includes/Vision/LayoutExtractor.php';
 require_once __DIR__ . '/includes/Vision/VisionAnalyzer.php';
+require_once __DIR__ . '/includes/Matching/LayoutComparator.php';
+require_once __DIR__ . '/includes/Matching/SimilarityScorer.php';
+require_once __DIR__ . '/includes/Matching/PresetMatchingEngine.php';
 
 use ElementorVisionCore\Builders\JsonRepairEngine;
 use ElementorVisionCore\Builders\JsonValidator;
@@ -41,6 +44,7 @@ use ElementorVisionCore\Presets\PresetRegistry;
 use ElementorVisionCore\Presets\SampleTemplatePreset;
 use ElementorVisionCore\Vision\OpenAIVisionProvider;
 use ElementorVisionCore\Vision\VisionAnalyzer;
+use ElementorVisionCore\Matching\PresetMatchingEngine;
 
 class Elementor_Vision_Core_Plugin {
     public function __construct() {
@@ -52,6 +56,7 @@ class Elementor_Vision_Core_Plugin {
         add_action('admin_post_evc_save_preset', [$this, 'handle_save_preset']);
         add_action('admin_post_evc_duplicate_preset', [$this, 'handle_duplicate_preset']);
         add_action('admin_post_evc_analyze_screenshot', [$this, 'handle_analyze_screenshot']);
+        add_action('admin_post_evc_match_presets', [$this, 'handle_match_presets']);
     }
 
     public function register_admin_menu() {
@@ -112,6 +117,12 @@ class Elementor_Vision_Core_Plugin {
                 <input type="file" name="screenshot" accept="image/*" required />
                 <input type="text" name="openai_api_key" placeholder="OpenAI API Key" style="min-width:280px;" required />
                 <?php submit_button('Analyze Screenshot', 'primary', 'submit', false); ?>
+            </form>
+
+            <form method="post" action="<?php echo $action; ?>" style="margin-bottom:12px;">
+                <?php wp_nonce_field('evc_match_presets'); ?>
+                <input type="hidden" name="action" value="evc_match_presets" />
+                <?php submit_button('Match Presets from Analysis', 'secondary', 'submit', false); ?>
             </form>
 
             <form method="post" action="<?php echo $action; ?>" style="margin: 8px 0; display:flex; gap:8px; align-items:center;">
@@ -265,6 +276,34 @@ class Elementor_Vision_Core_Plugin {
         set_transient('evc_last_report', ['action' => 'analyze_screenshot', 'result' => $result], 300);
         wp_safe_redirect(admin_url('admin.php?page=elementor-vision-core'));
         exit;
+    }
+
+
+    public function handle_match_presets() {
+        if (! current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        check_admin_referer('evc_match_presets');
+
+        $report = get_transient('evc_last_report');
+        $layout_map = $report['result']['layout_map'] ?? null;
+        if (! is_array($layout_map)) {
+            set_transient('evc_last_report', ['action' => 'match_presets', 'error' => 'Run screenshot analysis first.'], 180);
+            wp_safe_redirect(admin_url('admin.php?page=elementor-vision-core')); exit;
+        }
+
+        $registry = new PresetRegistry();
+        $registry->seed_defaults((new PresetLibrary())->defaults());
+        $presets = $registry->all();
+
+        $engine = new PresetMatchingEngine();
+        $matches = $engine->match($layout_map, $presets, 3);
+
+        set_transient('evc_last_report', [
+            'action' => 'match_presets',
+            'layout_map' => $layout_map,
+            'matches' => $matches,
+        ], 300);
+
+        wp_safe_redirect(admin_url('admin.php?page=elementor-vision-core')); exit;
     }
 
     private function download_json(string $json, string $prefix): void {
