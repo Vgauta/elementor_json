@@ -1,13 +1,34 @@
 {
-  "id": "hero-dark-01",
   "elType": "container",
   "isInner": false,
   "settings": {
     "_title": "Hero",
-    "content_width": "boxed",
+    "content_width": "full",
+    "flex_direction": "row",
+    "flex_wrap": "nowrap",
+    "gap": { "unit": "px", "size": 32, "sizes": [] },
+    "padding": { "unit": "px", "top": "120", "right": "40", "bottom": "120", "left": "40", "isLinked": false },
     "background_background": "classic",
-    "background_color": "#111827",
-    "padding": {"unit":"px","top":"120","right":"30","bottom":"120","left":"30","isLinked":false}
+    "background_color": "#111827"
   },
-  "elements": []
+  "elements": [
+    {
+      "elType": "container",
+      "isInner": true,
+      "settings": { "width": { "unit": "%", "size": 55, "sizes": [] }, "flex_direction": "column", "justify_content": "center" },
+      "elements": [
+        { "elType": "widget", "widgetType": "heading", "settings": { "title": "Premium AI Landing Pages", "size": "xxl", "title_color": "#FFFFFF" }, "elements": [] },
+        { "elType": "widget", "widgetType": "text-editor", "settings": { "editor": "Create structured Elementor pages from screenshots in minutes.", "text_color": "#CBD5E1" }, "elements": [] },
+        { "elType": "widget", "widgetType": "button", "settings": { "text": "Get Started", "size": "md", "button_text_color": "#FFFFFF", "background_color": "#6366F1" }, "elements": [] }
+      ]
+    },
+    {
+      "elType": "container",
+      "isInner": true,
+      "settings": { "width": { "unit": "%", "size": 45, "sizes": [] }, "justify_content": "center", "align_items": "center" },
+      "elements": [
+        { "elType": "widget", "widgetType": "image", "settings": { "image": { "url": "", "id": "", "size": "large" } }, "elements": [] }
+      ]
+    }
+  ]
 }

@@ -11,12 +11,16 @@ class Vision_Service
     public function analyze_image(string $image_path): array
     {
         $api_key = (string) get_option('aieb_openai_api_key', '');
-
-        if ($api_key === '') {
+        if ($api_key === '' || ! file_exists($image_path)) {
             return $this->fallback_structure();
         }
 
-        $image_data = base64_encode((string) file_get_contents($image_path));
+        $binary = file_get_contents($image_path);
+        if ($binary === false) {
+            return $this->fallback_structure();
+        }
+
+        $image_data = base64_encode($binary);
         $mime = wp_check_filetype($image_path)['type'] ?? 'image/png';
 
         $payload = [
@@ -24,7 +28,10 @@ class Vision_Service
             'input' => [[
                 'role' => 'user',
                 'content' => [
-                    ['type' => 'input_text', 'text' => 'Analyze this website screenshot into sections, layout patterns, styles and components. Return strict JSON with key: sections.'],
+                    [
+                        'type' => 'input_text',
+                        'text' => 'Analyze website screenshot into structured JSON with sections[]. Each section requires type, layout, style(background_color optional), elements[]. Keep semantics only, no Elementor raw schema.',
+                    ],
                     ['type' => 'input_image', 'image_url' => 'data:' . $mime . ';base64,' . $image_data],
                 ],
             ]],
@@ -35,7 +42,20 @@ class Vision_Service
                     'schema' => [
                         'type' => 'object',
                         'properties' => [
-                            'sections' => ['type' => 'array'],
+                            'page_title' => ['type' => 'string'],
+                            'sections' => [
+                                'type' => 'array',
+                                'items' => [
+                                    'type' => 'object',
+                                    'properties' => [
+                                        'type' => ['type' => 'string'],
+                                        'layout' => ['type' => 'string'],
+                                        'style' => ['type' => 'object'],
+                                        'elements' => ['type' => 'array'],
+                                    ],
+                                    'required' => ['type', 'layout', 'elements'],
+                                ],
+                            ],
                         ],
                         'required' => ['sections'],
                     ],
@@ -56,20 +76,27 @@ class Vision_Service
             return $this->fallback_structure();
         }
 
+        $status = wp_remote_retrieve_response_code($response);
+        if ($status < 200 || $status >= 300) {
+            return $this->fallback_structure();
+        }
+
         $body = json_decode((string) wp_remote_retrieve_body($response), true);
         $text = $body['output'][0]['content'][0]['text'] ?? '';
-        $parsed = json_decode($text, true);
+        $parsed = json_decode((string) $text, true);
 
-        return is_array($parsed) ? $parsed : $this->fallback_structure();
+        return is_array($parsed) && isset($parsed['sections']) ? $parsed : $this->fallback_structure();
     }
 
     private function fallback_structure(): array
     {
         return [
+            'page_title' => 'AI Generated Page',
             'sections' => [
-                ['type' => 'hero', 'layout' => '2-column', 'style' => 'dark-premium', 'elements' => ['heading', 'text', 'button', 'image']],
-                ['type' => 'stats', 'layout' => 'inline', 'style' => 'minimal-modern', 'elements' => ['counter', 'counter', 'counter']],
-                ['type' => 'footer', 'layout' => '3-column', 'style' => 'corporate', 'elements' => ['links', 'contact', 'social']],
+                ['type' => 'hero', 'layout' => '2-column', 'style' => ['background_color' => '#111827'], 'elements' => ['heading', 'text', 'button', 'image']],
+                ['type' => 'services', 'layout' => 'grid', 'style' => ['background_color' => '#FFFFFF'], 'elements' => ['cards']],
+                ['type' => 'stats', 'layout' => 'inline', 'style' => ['background_color' => '#F8FAFC'], 'elements' => ['counter', 'counter', 'counter']],
+                ['type' => 'footer', 'layout' => 'stack', 'style' => ['background_color' => '#0B1020'], 'elements' => ['links', 'copyright']],
             ],
         ];
     }

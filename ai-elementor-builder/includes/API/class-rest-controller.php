@@ -40,7 +40,7 @@ class Rest_Controller
 
     public function generate(WP_REST_Request $request): WP_REST_Response
     {
-        $nonce = $request->get_header('X-WP-Nonce');
+        $nonce = (string) $request->get_header('X-WP-Nonce');
         if (! wp_verify_nonce($nonce, 'wp_rest')) {
             return new WP_REST_Response(['message' => 'Invalid nonce'], 403);
         }
@@ -49,15 +49,35 @@ class Rest_Controller
             return new WP_REST_Response(['message' => 'No image uploaded'], 422);
         }
 
-        require_once ABSPATH . 'wp-admin/includes/file.php';
-        $uploaded = wp_handle_upload($_FILES['image'], ['test_form' => false]);
-
-        if (! empty($uploaded['error'])) {
-            return new WP_REST_Response(['message' => $uploaded['error']], 422);
+        $file = $_FILES['image'];
+        if (! is_array($file) || ! empty($file['error'])) {
+            return new WP_REST_Response(['message' => 'Invalid upload'], 422);
         }
 
-        $analysis = $this->vision->analyze_image($uploaded['file']);
+        if ((int) ($file['size'] ?? 0) > 8 * 1024 * 1024) {
+            return new WP_REST_Response(['message' => 'Image exceeds 8MB limit'], 422);
+        }
+
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        $uploaded = wp_handle_upload($file, [
+            'test_form' => false,
+            'mimes' => [
+                'jpg|jpeg|jpe' => 'image/jpeg',
+                'png' => 'image/png',
+                'webp' => 'image/webp',
+            ],
+        ]);
+
+        if (! empty($uploaded['error'])) {
+            return new WP_REST_Response(['message' => sanitize_text_field((string) $uploaded['error'])], 422);
+        }
+
+        $analysis = $this->vision->analyze_image((string) $uploaded['file']);
         $json = $this->assembler->build($analysis);
+
+        if (empty($json)) {
+            return new WP_REST_Response(['message' => 'Failed to build valid Elementor JSON'], 500);
+        }
 
         return new WP_REST_Response([
             'analysis' => $analysis,
