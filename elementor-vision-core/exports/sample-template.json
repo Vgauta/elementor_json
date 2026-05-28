@@ -1,0 +1,18 @@
+{
+  "version": "0.4",
+  "title": "Elementor Vision Sample Template",
+  "type": "page",
+  "content": [
+    {
+      "id": "root0001",
+      "elType": "container",
+      "isInner": false,
+      "settings": {
+        "content_width": "full",
+        "flex_direction": "column"
+      },
+      "elements": []
+    }
+  ],
+  "page_settings": []
+}
