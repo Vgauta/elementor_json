@@ -1,0 +1,13 @@
+{
+  "id": "hero-dark-01",
+  "elType": "container",
+  "isInner": false,
+  "settings": {
+    "_title": "Hero",
+    "content_width": "boxed",
+    "background_background": "classic",
+    "background_color": "#111827",
+    "padding": {"unit":"px","top":"120","right":"30","bottom":"120","left":"30","isLinked":false}
+  },
+  "elements": []
+}

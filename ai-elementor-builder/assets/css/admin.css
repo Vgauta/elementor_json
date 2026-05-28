@@ -1,0 +1,4 @@
+.aieb-app { background: #fff; border: 1px solid #e5e7eb; padding: 24px; border-radius: 12px; max-width: 980px; }
+.aieb-app h1 { margin-top: 0; }
+.aieb-preview { margin-top: 16px; }
+.aieb-preview pre { max-height: 400px; overflow: auto; background: #0f172a; color: #e2e8f0; padding: 16px; border-radius: 8px; }
